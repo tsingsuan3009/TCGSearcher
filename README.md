@@ -68,6 +68,18 @@ resources/              图标、背景图片和规则文本
 TCGSearcher.pro         qmake 项目配置
 ```
 
+## 界面素材与许可
+
+三款图鉴背景使用 Wikimedia Commons 上可再分发的素材；文件随 Qt 资源一同打包，运行时不需要额外联网下载：
+
+| 用途 | 素材与作者 | 许可与来源 |
+| --- | --- | --- |
+| 游戏王背景 | NASA/ESA/CSA/STScI，《NASA Telescopes Create Colorful 'Craft' From Nearby Nebula (Tarantula Nebula Optical Crop)》 | 公有领域；[Wikimedia Commons 文件页](https://commons.wikimedia.org/wiki/File:NASA_Telescopes_Create_Colorful_%27Craft%27_From_Nearby_Nebula_(Tarantula_Nebula_Optical_Crop).jpg) |
+| 宝可梦 TCG 背景 | David Revoy，《Fantasy Landscape》 | [CC BY 4.0](https://creativecommons.org/licenses/by/4.0/)；[Wikimedia Commons 文件页](https://commons.wikimedia.org/wiki/File:2007-01-30_Fantasy-Landscape_by-David-Revoy.jpg) |
+| 七圣召唤背景 | Hpjperera84，《Misty mountain of Sri Lanka》 | [CC BY-SA 4.0](https://creativecommons.org/licenses/by-sa/4.0/)；[Wikimedia Commons 文件页](https://commons.wikimedia.org/wiki/File:Misty_mountain_of_Sri_lanka.jpg) |
+
+素材保持原样并注明作者及来源。游戏名称与标识仅用于指明图鉴类别，不表示本项目获得相关权利人背书。
+
 ## 版本与数据说明
 
 - 代码、界面资源和规则文本由本仓库进行版本控制。
