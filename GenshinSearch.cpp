@@ -6,11 +6,13 @@
 #include <QMessageBox>
 #include <QVBoxLayout>
 #include <QLabel>
-#include <QDir>
 #include <QHeaderView>
 #include <QFontMetrics>
 #include <QTextEdit>
 #include <QTimer>
+#include <QDialog>
+#include <QJsonParseError>
+#include <algorithm>
 
 GenshinSearch::GenshinSearch(QWidget *parent) : CardSearch(parent) {
     originalTitle = "原神卡片搜索"; // 保存完整的标题
@@ -109,84 +111,126 @@ void GenshinSearch::adjustTitle(int windowWidth) {
 }
 
 void GenshinSearch::loadCards() {
-    loadJsonFromUrl(QUrl("https://raw.githubusercontent.com/tsingsuan3009/TCGSearcher/main/data/cards_genshin.json"));
+    const QUrl rolesUrl("https://api-takumi.mihoyo.com/event/cardsquare/roles");
+    const QUrl actionsUrl("https://api-takumi.mihoyo.com/event/cardsquare/actions");
+    setDataStatus("正在从米游社获取最新原神七圣召唤卡牌...", false);
+    requestJson(rolesUrl, {}, "获取原神角色卡", [this, actionsUrl](const QByteArray &rolesData) {
+        QJsonParseError parseError;
+        const QJsonDocument rolesDocument = QJsonDocument::fromJson(rolesData, &parseError);
+        if (parseError.error != QJsonParseError::NoError || !rolesDocument.isObject()) {
+            showDataError("米游社角色卡数据格式无效。");
+            return;
+        }
+
+        const QJsonObject rolesRoot = rolesDocument.object();
+        const QJsonArray roleCards = rolesRoot["data"].toObject()["roles"].toArray();
+        if (rolesRoot["retcode"].toInt(-1) != 0 || roleCards.isEmpty()) {
+            showDataError("米游社未返回有效的原神角色卡数据。");
+            return;
+        }
+
+        requestJson(actionsUrl, QByteArray("{}"), "获取原神行动卡", [this, roleCards](const QByteArray &actionsData) {
+            QJsonParseError actionsParseError;
+            const QJsonDocument actionsDocument = QJsonDocument::fromJson(actionsData, &actionsParseError);
+            if (actionsParseError.error != QJsonParseError::NoError || !actionsDocument.isObject()) {
+                showDataError("米游社行动卡数据格式无效。");
+                return;
+            }
+
+            const QJsonObject actionsRoot = actionsDocument.object();
+            const QJsonArray actionCards = actionsRoot["data"].toObject()["actions"].toArray();
+            if (actionsRoot["retcode"].toInt(-1) != 0 || actionCards.isEmpty()) {
+                showDataError("米游社未返回有效的原神行动卡数据。");
+                return;
+            }
+
+            cards.clear();
+            for (const QJsonValue &value : roleCards) {
+                const QJsonObject role = value.toObject();
+                const QJsonObject basic = role["basic"].toObject();
+                QJsonObject card;
+                card.insert("id", basic["item_id"]);
+                card.insert("name", basic["name"]);
+                card.insert("card_type", "角色");
+                card.insert("hp", role["hp"].toVariant().toString());
+                card.insert("element", role["element"]);
+                card.insert("skill_cost", role["skill_cost"]);
+                card.insert("max_cnt", basic["max_cnt"]);
+                card.insert("icon", basic["icon"]);
+                cards.append(card);
+            }
+
+            for (const QJsonValue &value : actionCards) {
+                const QJsonObject action = value.toObject();
+                const QJsonObject basic = action["basic"].toObject();
+                QJsonObject card;
+                card.insert("id", basic["item_id"]);
+                card.insert("name", basic["name"]);
+                card.insert("card_type", "行动");
+                card.insert("action_type", action["card_type"]);
+                card.insert("cost_num", action["skill_value"]);
+                card.insert("energy_cost", action["energy_cost"]);
+                card.insert("card_tag", action["card_tag"]);
+                card.insert("max_cnt", basic["max_cnt"]);
+                card.insert("icon", basic["icon"]);
+                card.insert("wiki_url", basic["wiki_url"]);
+                cards.append(card);
+            }
+
+            adjustWindowSize();
+            setDataStatus(QString("已从米游社更新 %1 张卡牌。").arg(cards.size()), true);
+            qDebug() << "加载的卡片数:" << cards.size();
+        });
+    });
 }
 
-bool GenshinSearch::loadJsonData(const QByteArray &data) {
-    QJsonParseError parseError;
-    const QJsonDocument doc = QJsonDocument::fromJson(data, &parseError);
-    if (parseError.error != QJsonParseError::NoError || !doc.isObject()) {
-        return false;
+static QString elementName(const QJsonValue &value) {
+    switch (value.toInt()) {
+    case 301: return "冰";
+    case 302: return "水";
+    case 303: return "火";
+    case 304: return "雷";
+    case 305: return "风";
+    case 306: return "岩";
+    case 307: return "草";
+    default: return value.toVariant().toString();
     }
-
-    const QJsonObject root = doc.object();
-    const QJsonObject cardData = root["data"].toObject();
-    const QJsonArray roleCards = cardData["role_card_infos"].toArray();
-    const QJsonArray actionCards = cardData["action_card_infos"].toArray();
-    if (roleCards.isEmpty() && actionCards.isEmpty()) {
-        return false;
-    }
-
-    for (const QJsonValue &item : roleCards) {
-        QJsonObject card = item.toObject();
-        card.insert("card_type", "角色");
-        cards.append(card);
-    }
-
-    for (const QJsonValue &item : actionCards) {
-        QJsonObject card = item.toObject();
-        card.insert("card_type", "行动");
-        cards.append(card);
-    }
-
-    adjustWindowSize();
-    qDebug() << "加载的卡片数:" << cards.size();
-    return true;
 }
 
 void GenshinSearch::performSearch() {
-    QString keyword = searchBox->text(); // 获取搜索框内容
+    const QString keyword = searchBox->text().trimmed();
     if (keyword.isEmpty()) {
         QMessageBox::warning(this, "警告", "请输入关键词进行搜索！");
         return;
     }
 
-    resultTable->setRowCount(0); // 清空表格
+    resultTable->setRowCount(0);
     bool found = false;
-
     for (const QJsonObject &card : cards) {
-        QString id = QString::number(card["id"].toInt());
-        QString name = card["name"].toString();
-        QString cardType = card["card_type"].toString(); // 获取卡片类型
+        const QString id = card["id"].toVariant().toString();
+        const QString name = card["name"].toString();
+        const QString cardType = card["card_type"].toString();
+        const QString element = elementName(card["element"]);
+        const QString actionType = card["action_type"].toVariant().toString();
+        const QString cost = card["cost_num"].toVariant().toString();
+        const QString skillCost = card["skill_cost"].toVariant().toString();
 
-        QStringList attributes; // 收集可供搜索的字段
-        attributes << id << name << cardType;
-
-        // 对不同卡牌类型追加特定字段
-        if (cardType == "角色") {
-            attributes << card["weapon"].toString() << card["hp"].toString();
-        } else if (cardType == "行动") {
-            attributes << card["action_type"].toString();
+        if (!id.contains(keyword, Qt::CaseInsensitive) &&
+            !name.contains(keyword, Qt::CaseInsensitive) &&
+            !cardType.contains(keyword, Qt::CaseInsensitive) &&
+            !element.contains(keyword, Qt::CaseInsensitive) &&
+            !actionType.contains(keyword, Qt::CaseInsensitive) &&
+            !cost.contains(keyword, Qt::CaseInsensitive) &&
+            !skillCost.contains(keyword, Qt::CaseInsensitive)) {
+            continue;
         }
 
-        // 判断是否匹配关键字
-        bool matches = false;
-        for (const QString &attr : attributes) {
-            if (attr.contains(keyword, Qt::CaseInsensitive)) {
-                matches = true;
-                break;
-            }
-        }
-
-        if (matches) {
-            found = true;
-            int row = resultTable->rowCount();
-            resultTable->insertRow(row);
-
-            resultTable->setItem(row, 0, new QTableWidgetItem(id));
-            resultTable->setItem(row, 1, new QTableWidgetItem(name));
-            resultTable->setItem(row, 2, new QTableWidgetItem(cardType));
-        }
+        found = true;
+        const int row = resultTable->rowCount();
+        resultTable->insertRow(row);
+        resultTable->setItem(row, 0, new QTableWidgetItem(id));
+        resultTable->setItem(row, 1, new QTableWidgetItem(name));
+        resultTable->setItem(row, 2, new QTableWidgetItem(cardType));
     }
 
     if (!found) {
@@ -195,107 +239,45 @@ void GenshinSearch::performSearch() {
 }
 
 void GenshinSearch::showCardDetails(QTableWidgetItem *item) {
-    int row = item->row();
-    QString id = resultTable->item(row, 0)->text();
-
-    // 查找卡牌数据
-    QJsonObject cardDetails;
-    for (const QJsonObject &card : cards) {
-        if (QString::number(card["id"].toInt()) == id) {
-            cardDetails = card;
-            break;
-        }
+    if (!item || !resultTable->item(item->row(), 0)) {
+        return;
     }
 
-    if (cardDetails.isEmpty()) {
+    const QString id = resultTable->item(item->row(), 0)->text();
+    const auto cardIt = std::find_if(cards.cbegin(), cards.cend(), [&id](const QJsonObject &card) {
+        return card["id"].toVariant().toString() == id;
+    });
+    if (cardIt == cards.cend()) {
         QMessageBox::warning(this, "警告", "未找到卡片详细信息！");
         return;
     }
 
-    QDialog *detailDialog = new QDialog(this);
-    detailDialog->setWindowTitle("卡片详情");
-    detailDialog->resize(600, 400);
+    const QJsonObject card = *cardIt;
+    QDialog detailDialog(this);
+    detailDialog.setWindowTitle("卡片详情");
+    detailDialog.resize(600, 400);
 
-    // 设置对话框背景为淡绿色
-    detailDialog->setStyleSheet("background-color: #d4f7d4;"); // 设置淡绿色背景
+    auto *detailText = new QTextEdit(&detailDialog);
+    detailText->setReadOnly(true);
+    QString details = "卡片ID: " + id + "\n"
+        + "名称: " + card["name"].toString() + "\n"
+        + "类型: " + card["card_type"].toString() + "\n";
 
-    QVBoxLayout *layout = new QVBoxLayout(detailDialog);
-    QLabel *idLabel = new QLabel("ID: " + id);
-    idLabel->setWordWrap(true);
-    layout->addWidget(idLabel);
-
-    QLabel *nameLabel = new QLabel("名称: " + processColoredText(cardDetails["name"].toString()));
-    nameLabel->setWordWrap(true);
-    layout->addWidget(nameLabel);
-
-    QLabel *typeLabel = new QLabel("类型: " + cardDetails["card_type"].toString());
-    typeLabel->setWordWrap(true);
-    layout->addWidget(typeLabel);
-
-    QString cardType = cardDetails["card_type"].toString();
-    if (cardType == "角色") {
-        QLabel *weaponLabel = new QLabel("武器: " + processColoredText(cardDetails["weapon"].toString()));
-        weaponLabel->setWordWrap(true);
-        layout->addWidget(weaponLabel);
-
-        QLabel *hpLabel = new QLabel("HP: " + cardDetails["hp"].toString());
-        hpLabel->setWordWrap(true);
-        layout->addWidget(hpLabel);
-
-        // 添加角色技能信息
-        QJsonArray roleSkills = cardDetails["role_skill_infos"].toArray();
-        QLabel *skillsTitle = new QLabel("技能信息: ");
-        skillsTitle->setWordWrap(true);
-        layout->addWidget(skillsTitle);
-        for (const auto &skill : roleSkills) {
-            QJsonObject skillObj = skill.toObject();
-            QLabel *skillLabel = new QLabel("- ID: " + skillObj["id"].toString() + ", 名称: " + processColoredText(skillObj["name"].toString()) + ", 描述: " + processNewlineText(processColoredText(skillObj["skill_text"].toString())));
-            skillLabel->setWordWrap(true);
-            layout->addWidget(skillLabel);
-        }
-
-        // 添加所属信息
-        QJsonArray belongTo = cardDetails["belong_to"].toArray();
-        QLabel *belongTitle = new QLabel("所属: ");
-        belongTitle->setWordWrap(true);
-        layout->addWidget(belongTitle);
-        for (const auto &belong : belongTo) {
-            QLabel *belongLabel = new QLabel("- " + processColoredText(belong.toString()));
-            belongLabel->setWordWrap(true);
-            layout->addWidget(belongLabel);
-        }
-
-    } else if (cardType == "行动") {
-        // 添加行动牌的内容信息
-        QLabel *contentLabel = new QLabel("内容: " + processNewlineText(processColoredText(cardDetails["content"].toString())));
-        contentLabel->setWordWrap(true);
-        layout->addWidget(contentLabel);
+    if (card["card_type"].toString() == "角色") {
+        details += "元素: " + elementName(card["element"]) + "\n"
+            + "生命值: " + card["hp"].toVariant().toString() + "\n"
+            + "技能费用: " + card["skill_cost"].toVariant().toString() + "\n";
+    } else {
+        details += "行动卡类型代码: " + card["action_type"].toVariant().toString() + "\n"
+            + "元素骰费用: " + card["cost_num"].toVariant().toString() + "\n"
+            + "能量费用: " + card["energy_cost"].toVariant().toString() + "\n"
+            + "卡牌标签代码: "
+            + QString::fromUtf8(QJsonDocument(card["card_tag"].toArray()).toJson(QJsonDocument::Compact))
+            + "\n";
     }
 
-    detailDialog->setLayout(layout);
-    detailDialog->exec();
-}
-
-QString GenshinSearch::processColoredText(const QString &text) {
-    QString processedText = text;
-
-    // 处理 <color> 标签并应用颜色
-    QRegularExpression colorRegex("<color=([^>]+)>(.*?)</color>");
-    QRegularExpressionMatchIterator matchIterator = colorRegex.globalMatch(text);
-
-    while (matchIterator.hasNext()) {
-        QRegularExpressionMatch match = matchIterator.next();
-        QString color = match.captured(1); // 获取颜色代码
-        QString content = match.captured(2); // 获取内容
-
-        // 替换为 HTML 样式文本
-        QString coloredText = QString("<span style='color:%1;'>%2</span>").arg(color, content);
-        processedText.replace(match.captured(0), coloredText);
-    }
-
-    return processedText;
-}
-
-QString GenshinSearch::processNewlineText(QString text) {
-    return text.replace("\\n", "\n"); // 处理 \n 并替换为实际换行符
+    detailText->setText(details);
+    auto *layout = new QVBoxLayout(&detailDialog);
+    layout->addWidget(detailText);
+    detailDialog.exec();
 }

@@ -9,6 +9,10 @@
 #include <QLabel>
 #include <QTextEdit>
 #include <QTimer>
+#include <QUrlQuery>
+#include <QJsonDocument>
+#include <QDialog>
+#include <QJsonParseError>
 
 YGOSearch::YGOSearch(QWidget *parent) : CardSearch(parent) {
     originalTitle = "游戏王卡片搜索"; // 保存完整标题
@@ -18,7 +22,7 @@ YGOSearch::YGOSearch(QWidget *parent) : CardSearch(parent) {
     // 设置表头
     resultTable->setColumnCount(8); // 确保表格有8列
     resultTable->setHorizontalHeaderLabels({
-        "卡片ID", "名称", "日文名称", "英文名称", "类型", "攻击力", "防御力", "描述"
+        "卡片ID", "名称", "日文名称", "英文名称", "类型", "攻击力", "守备力", "描述"
     });
     if (!resultTable) {
         resultTable = new QTableWidget(this);
@@ -117,56 +121,70 @@ void YGOSearch::adjustTitle(int windowWidth) {
 }
 
 void YGOSearch::loadCards() {
-    loadJsonFromUrl(QUrl("https://raw.githubusercontent.com/tsingsuan3009/TCGSearcher/main/data/cards_ygo.json"));
+    setDataStatus("输入卡名、密码或关键字后，将实时查询游戏王百鸽卡查。", true);
 }
 
 void YGOSearch::performSearch() {
-    QString keyword = searchBox->text(); // 获取搜索框内容
+    const QString keyword = searchBox->text().trimmed();
     if (keyword.isEmpty()) {
-        QMessageBox::warning(this, "警告", "请输入关键词进行搜索！"); // 如果为空，显示警告
+        QMessageBox::warning(this, "警告", "请输入关键词进行搜索！");
         return;
     }
 
-    resultTable->setRowCount(0); // 清空表格
-    bool found = false; // 标记是否找到匹配的卡片
-
-    for (const QJsonObject &card : cards) {
-        QString id = QString::number(card["id"].toInt());
-        QString cn_name = card["cn_name"].toString();
-        QString jp_name = card["jp_name"].toString();
-        QString en_name = card["en_name"].toString();
-        QString types = card["text"].toObject()["types"].toString();
-        QString atk = QString::number(card["data"].toObject()["atk"].toInt());
-        QString def = QString::number(card["data"].toObject()["def"].toInt());
-        QString desc = card["text"].toObject()["desc"].toString();
-
-        if (cn_name.contains(keyword, Qt::CaseInsensitive) ||
-            jp_name.contains(keyword, Qt::CaseInsensitive) ||
-            en_name.contains(keyword, Qt::CaseInsensitive) ||
-            desc.contains(keyword, Qt::CaseInsensitive)) {
-
-            found = true;
-            int row = resultTable->rowCount(); // 获取当前行数
-            resultTable->insertRow(row); // 插入新行
-
-            // 设置表格每列的内容
-            resultTable->setItem(row, 0, new QTableWidgetItem(id));
-            resultTable->setItem(row, 1, new QTableWidgetItem(cn_name));
-            resultTable->setItem(row, 2, new QTableWidgetItem(jp_name));
-            resultTable->setItem(row, 3, new QTableWidgetItem(en_name));
-            resultTable->setItem(row, 4, new QTableWidgetItem(types));
-            resultTable->setItem(row, 5, new QTableWidgetItem(atk));
-            resultTable->setItem(row, 6, new QTableWidgetItem(def));
-            resultTable->setItem(row, 7, new QTableWidgetItem(desc));
+    QUrl url("https://ygocdb.com/api/v0/");
+    QUrlQuery query;
+    query.addQueryItem("search", keyword);
+    url.setQuery(query);
+    requestJson(url, {}, "正在从游戏王百鸽卡查搜索最新卡牌...", [this](const QByteArray &response) {
+        QJsonParseError parseError;
+        const QJsonDocument document = QJsonDocument::fromJson(response, &parseError);
+        if (parseError.error != QJsonParseError::NoError || !document.isObject()) {
+            showDataError("游戏王卡查返回了无效的 JSON 数据。");
+            return;
         }
-    }
 
-    if (!found) {
-        QMessageBox::information(this, "提示", "没有找到相关卡片！"); // 如果未找到，显示提示信息
-    }
+        const QJsonObject root = document.object();
+        const QJsonArray results = root["result"].toArray();
+        if (!root.contains("result")) {
+            showDataError("游戏王卡查未返回有效的搜索结果。");
+            return;
+        }
+
+        cards.clear();
+        resultTable->setRowCount(0);
+        for (const QJsonValue &value : results) {
+            const QJsonObject card = value.toObject();
+            const QJsonObject text = card["text"].toObject();
+            const QJsonObject data = card["data"].toObject();
+            cards.append(card);
+
+            const int row = resultTable->rowCount();
+            resultTable->insertRow(row);
+            resultTable->setItem(row, 0, new QTableWidgetItem(QString::number(card["id"].toInt())));
+            resultTable->setItem(row, 1, new QTableWidgetItem(card["cn_name"].toString()));
+            resultTable->setItem(row, 2, new QTableWidgetItem(card["jp_name"].toString()));
+            resultTable->setItem(row, 3, new QTableWidgetItem(card["en_name"].toString()));
+            resultTable->setItem(row, 4, new QTableWidgetItem(text["types"].toString()));
+            resultTable->setItem(row, 5, new QTableWidgetItem(!data["atk"].isDouble()
+                                                                    ? "-"
+                                                                    : data["atk"].toVariant().toString()));
+            resultTable->setItem(row, 6, new QTableWidgetItem(!data["def"].isDouble()
+                                                                    ? "-"
+                                                                    : data["def"].toVariant().toString()));
+            resultTable->setItem(row, 7, new QTableWidgetItem(text["desc"].toString()));
+        }
+
+        setDataStatus(QString("已从游戏王百鸽卡查获取 %1 张结果。").arg(results.size()), true);
+        if (results.isEmpty()) {
+            QMessageBox::information(this, "提示", "没有找到相关卡片！");
+        }
+    });
 }
 
 void YGOSearch::showCardDetails(QTableWidgetItem *item) {
+    if (!item) {
+        return;
+    }
     int row = item->row(); // 获取被双击的行号
 
     auto getTextOrDefault = [&](int column) {
@@ -197,7 +215,7 @@ void YGOSearch::showCardDetails(QTableWidgetItem *item) {
         "英文名称: " + en_name + "\n" +
         "类型: " + types + "\n" +
         "攻击力: " + atk + "\n" +
-        "防御力: " + def + "\n" +
+        "守备力: " + def + "\n" +
         "描述: " + desc
         );
 
@@ -206,31 +224,4 @@ void YGOSearch::showCardDetails(QTableWidgetItem *item) {
 
     detailDialog->setLayout(layout);
     detailDialog->exec(); // 显示对话框
-}
-
-bool YGOSearch::loadJsonData(const QByteArray &data) {
-    QJsonParseError parseError;
-    const QJsonDocument doc = QJsonDocument::fromJson(data, &parseError);
-    if (parseError.error != QJsonParseError::NoError || !doc.isObject()) {
-        return false;
-    }
-
-    const QJsonObject root = doc.object();
-    if (root.isEmpty()) {
-        return false;
-    }
-
-    for (const QString &key : root.keys()) {
-        const QJsonObject card = root[key].toObject();
-        if (!card.isEmpty()) {
-            cards.append(card);
-        }
-    }
-    if (cards.isEmpty()) {
-        return false;
-    }
-
-    adjustWindowSize();
-    qDebug() << "加载的卡片数:" << cards.size();
-    return true;
 }

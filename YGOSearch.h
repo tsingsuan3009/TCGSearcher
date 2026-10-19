@@ -17,7 +17,7 @@ public:
 
 protected:
     void loadCards() override; // 加载卡片数据
-    void performSearch(); // 执行搜索
+    void performSearch() override; // 执行搜索
     void showCardDetails(QTableWidgetItem *item) override; // 显示详细信息
     void resizeEvent(QResizeEvent *event);
     void setupTableBackground();
@@ -27,7 +27,6 @@ private:
     void adjustWindowSize(); // 动态调整窗口大小
     void adjustTitle(int windowWidth); // 动态调整标题显示
 
-    bool loadJsonData(const QByteArray &data) override;
 };
 
 #endif // YGOSEARCH_H

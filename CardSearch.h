@@ -16,6 +16,7 @@
 #include <QNetworkAccessManager>
 #include <QUrl>
 #include <QLabel>
+#include <functional>
 
 // 定义 CardSearch 类，用于处理卡片搜索功能
 class CardSearch : public QMainWindow {
@@ -28,7 +29,6 @@ public:
 protected:
     virtual void performSearch(); // 搜索功能
     virtual void loadCards() = 0; // 纯虚函数，用于加载卡片数据
-    virtual bool loadJsonData(const QByteArray &data) = 0;
     virtual void showCardDetails(QTableWidgetItem *item);
 
     QLineEdit *searchBox; // 搜索框
@@ -36,7 +36,12 @@ protected:
     QPushButton *searchButton;
     QVector<QJsonObject> cards; // 存储卡片数据的向量
 
-    void loadJsonFromUrl(const QUrl &url);
+    void requestJson(const QUrl &url,
+                     const QByteArray &postData,
+                     const QString &operation,
+                     const std::function<void(const QByteArray &)> &onSuccess);
+    void setDataStatus(const QString &message, bool searchEnabled);
+    void showDataError(const QString &message);
     void logError(const QString &message); // 错误日志记录
 
 private:

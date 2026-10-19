@@ -2,7 +2,6 @@
 #define GENSHINSEARCH_H
 
 #include "CardSearch.h"
-#include <QFile>
 #include <QJsonDocument>
 #include <QJsonObject>
 #include <QJsonArray>
@@ -16,7 +15,7 @@ public:
 
 protected:
     void loadCards() override; // 加载卡片数据
-    void performSearch(); // 执行搜索
+    void performSearch() override; // 执行搜索
     void showCardDetails(QTableWidgetItem *item) override; // 显示详细信息
     void resizeEvent(QResizeEvent *event);
     void setupTableBackground();
@@ -24,10 +23,6 @@ private:
     QString originalTitle; // 保存完整窗口标题
     void adjustWindowSize(); // 动态调整窗口大小，支持序号列和额外空间
     void adjustTitle(int windowWidth); // 动态调整标题显示
-
-    bool loadJsonData(const QByteArray &data) override;
-    QString processColoredText(const QString &text); // 处理颜色文本
-    QString processNewlineText(const QString text); // 处理换行文本
 };
 
 #endif // GENSHINSEARCH_H

@@ -6,10 +6,12 @@
 #include <QDebug>
 #include <QFontMetrics>
 #include <QJsonDocument>
+#include <QDialog>
 #include <QLabel>
 #include <QWidget>
 #include <QTextEdit>
 #include <QTimer>
+#include <algorithm>
 
 PTCGSearch::PTCGSearch(QWidget *parent) : CardSearch(parent) {
     originalTitle = "PTCG卡片搜索"; // 初始化完整标题
@@ -90,139 +92,151 @@ void PTCGSearch::adjustTitle(int windowWidth) {
 }
 
 void PTCGSearch::loadCards() {
-    loadJsonFromUrl(QUrl("https://raw.githubusercontent.com/tsingsuan3009/TCGSearcher/main/data/cards_ptcg.json"));
-}
-
-bool PTCGSearch::loadJsonData(const QByteArray &data) {
-    QJsonParseError parseError;
-    const QJsonDocument doc = QJsonDocument::fromJson(data, &parseError);
-    if (parseError.error != QJsonParseError::NoError || !doc.isObject()) {
-        return false;
-    }
-
-    const QJsonArray collectionsArray = doc.object()["collections"].toArray();
-    for (const QJsonValue &collectionValue : collectionsArray) {
-        const QJsonArray cardsArray = collectionValue.toObject()["cards"].toArray();
-        for (const QJsonValue &cardValue : cardsArray) {
-            cards.append(cardValue.toObject());
-        }
-    }
-    if (cards.isEmpty()) {
-        return false;
-    }
-
-    adjustWindowSize();
-    qDebug() << "加载的卡片数:" << cards.size();
-    return true;
+    setDataStatus("输入关键词后，将实时查询 tcg.mik.moe 的最新简体中文卡牌数据。", true);
 }
 
 void PTCGSearch::performSearch() {
-    QString keyword = searchBox->text();
+    const QString keyword = searchBox->text().trimmed();
     if (keyword.isEmpty()) {
         QMessageBox::warning(this, "警告", "请输入关键词进行搜索！");
         return;
     }
 
+    currentSearchKeyword = keyword;
+    currentSearchPage = 1;
+    totalSearchResults = 0;
+    cards.clear();
     resultTable->setRowCount(0);
-    bool found = false;
+    requestSearchPage();
+}
 
-    for (const QJsonValue &value : cards) {
-        QJsonObject card = value.toObject(); // 使用 toObject() 将 QJsonValue 转换为 QJsonObject
-        QString id = QString::number(card["id"].toInt());
-        QString name = card["name"].toString();
-        QString yorenCode = card["yorenCode"].toString();
+void PTCGSearch::requestSearchPage() {
+    const QJsonObject parameters{
+        {"searchText", currentSearchKeyword},
+        {"exact", false},
+        {"unique", false},
+        {"page", currentSearchPage},
+        {"pageSize", 100}
+    };
+    const QByteArray body = QJsonDocument(parameters).toJson(QJsonDocument::Compact);
+    const QUrl url("https://tcg.mik.moe/api/v3/card/card-basic-search");
+    requestJson(url, body,
+                QString("正在从 tcg.mik.moe 获取第 %1 页搜索结果...").arg(currentSearchPage),
+                [this](const QByteArray &response) {
+        QJsonParseError parseError;
+        const QJsonDocument document = QJsonDocument::fromJson(response, &parseError);
+        if (parseError.error != QJsonParseError::NoError || !document.isObject()) {
+            showDataError("宝可梦卡牌网站返回了无效的 JSON 数据。");
+            return;
+        }
 
-        if (id.contains(keyword, Qt::CaseInsensitive) ||
-            name.contains(keyword, Qt::CaseInsensitive) ||
-            yorenCode.contains(keyword, Qt::CaseInsensitive)) {
+        const QJsonObject root = document.object();
+        const QJsonObject data = root["data"].toObject();
+        if (root["code"].toInt() != 200 || !data["list"].isArray()) {
+            showDataError("宝可梦卡牌网站未能完成搜索。");
+            return;
+        }
 
-            found = true;
-            int row = resultTable->rowCount();
+        totalSearchResults = data["itemNum"].toInt(totalSearchResults);
+        const int pageCount = data["pageNum"].toInt(1);
+        const QJsonArray results = data["list"].toArray();
+        for (const QJsonValue &value : results) {
+            QJsonObject card = value.toObject();
+            const QString setCode = card["setCode"].toString();
+            const QString cardIndex = card["cardIndex"].toString();
+            const QString id = setCode + "-" + cardIndex;
+            const QString name = card["cardName"].toString();
+            card.insert("id", id);
+            card.insert("name", name);
+            cards.append(card);
+
+            const int row = resultTable->rowCount();
             resultTable->insertRow(row);
-
             resultTable->setItem(row, 0, new QTableWidgetItem(id));
             resultTable->setItem(row, 1, new QTableWidgetItem(name));
-            resultTable->setItem(row, 2, new QTableWidgetItem(yorenCode));
+            resultTable->setItem(row, 2, new QTableWidgetItem(card["yorenCode"].toString()));
         }
-    }
 
-    if (!found) {
-        QMessageBox::information(this, "提示", "没有找到相关卡片！");
-    }
+        if (currentSearchPage < pageCount) {
+            ++currentSearchPage;
+            requestSearchPage();
+            return;
+        }
 
-    // 重新调整窗口大小
-    adjustWindowSize();
+        QString status = QString("已从 tcg.mik.moe 获取 %1 条结果。")
+                             .arg(totalSearchResults);
+        setDataStatus(status, true);
+        adjustWindowSize();
+        if (cards.isEmpty()) {
+            QMessageBox::information(this, "提示", "没有找到相关卡片！");
+        }
+    });
 }
 
 void PTCGSearch::showCardDetails(QTableWidgetItem *item) {
-    int row = item->row(); // 获取被双击的行号
-
-    // 从表格中获取基本信息，若单元格为空则显示 "-"
-    QString id = resultTable->item(row, 0) ? resultTable->item(row, 0)->text() : "-";
-    QString name = resultTable->item(row, 1) ? resultTable->item(row, 1)->text() : "-";
-    QString yorenCode = resultTable->item(row, 2) ? resultTable->item(row, 2)->text() : "-";
-
-    // 查找对应卡片的详细信息
-    QJsonObject cardDetails;
-    for (const QJsonValue &value : cards) {
-        QJsonObject card = value.toObject();
-        if (QString::number(card["id"].toInt()) == id) {
-            cardDetails = card["details"].toObject();
-            break;
-        }
+    if (!item || !resultTable->item(item->row(), 0)) {
+        return;
     }
 
-    // 创建一个对话框用于显示卡片详细信息
-    QDialog *detailDialog = new QDialog(this);
-    detailDialog->setWindowTitle("卡片详情"); // 设置对话框标题
+    const QString id = resultTable->item(item->row(), 0)->text();
+    const auto cardIt = std::find_if(cards.cbegin(), cards.cend(), [&id](const QJsonObject &card) {
+        return card["id"].toString() == id;
+    });
+    if (cardIt == cards.cend()) {
+        QMessageBox::warning(this, "警告", "未找到卡片详细信息！");
+        return;
+    }
 
-    QVBoxLayout *layout = new QVBoxLayout(detailDialog);
-
-    // 工具函数：创建可复制的标签
-    auto createLabelWithCopy = [layout](const QString &fieldName, const QString &value) {
-        QLabel *label = new QLabel(fieldName + ": " + value); // 显示字段名称和值
-        label->setTextInteractionFlags(Qt::TextSelectableByMouse); // 设置为可复制
-        label->setWordWrap(true); // 自动换行
-        layout->addWidget(label); // 添加到布局
+    const QJsonObject card = *cardIt;
+    const QJsonObject parameters{
+        {"setCode", card["setCode"]},
+        {"cardIndex", card["cardIndex"]}
     };
+    const QByteArray body = QJsonDocument(parameters).toJson(QJsonDocument::Compact);
+    const QUrl url("https://tcg.mik.moe/api/v3/card/card-detail");
+    requestJson(url, body, "正在从 tcg.mik.moe 获取卡片详情...", [this](const QByteArray &response) {
+        QJsonParseError parseError;
+        const QJsonDocument document = QJsonDocument::fromJson(response, &parseError);
+        if (parseError.error != QJsonParseError::NoError || !document.isObject()) {
+            showDataError("宝可梦卡牌网站返回了无效的详情数据。");
+            return;
+        }
 
-    // 添加基本信息
-    createLabelWithCopy("卡片ID", id);
-    createLabelWithCopy("名称", name);
-    createLabelWithCopy("Yoren Code", yorenCode);
+        const QJsonObject root = document.object();
+        const QJsonObject details = root["data"].toObject();
+        if (root["code"].toInt() != 200 || details.isEmpty()) {
+            showDataError("宝可梦卡牌网站未能返回卡片详情。");
+            return;
+        }
 
-    // 如果卡片详情不为空，则添加更多字段信息
-    if (!cardDetails.isEmpty()) {
-        createLabelWithCopy("Ability List", cardDetails["abilityItemList"].toString("-"));
-        createLabelWithCopy("Attribute", cardDetails["attribute"].toString("-"));
-        createLabelWithCopy("Card Type", cardDetails["cardType"].toString("-"));
-        createLabelWithCopy("Card Type Text", cardDetails["cardTypeText"].toString("-"));
-        createLabelWithCopy("Collection Flag", cardDetails["collectionFlag"].toString("-"));
-        createLabelWithCopy("Collection Number", cardDetails["collectionNumber"].toString("-"));
-        createLabelWithCopy("Commodity List", cardDetails["commodityList"].toString("-"));
-        createLabelWithCopy("Evolve", cardDetails["evolve"].toString("-"));
-        createLabelWithCopy("Evolve Text", cardDetails["evolveText"].toString("-"));
-        createLabelWithCopy("Feature Flag", cardDetails["featureFlag"].toString("-"));
-        createLabelWithCopy("Feature Name", cardDetails["featureName"].toString("-"));
-        createLabelWithCopy("Feature Text", cardDetails["featureText"].toString("-"));
-        createLabelWithCopy("Height", cardDetails["height"].toString("-"));
-        createLabelWithCopy("HP", cardDetails["hp"].toString("-"));
-        createLabelWithCopy("Illustrator Name", cardDetails["illustratorName"].toString("-"));
-        createLabelWithCopy("Is Pokeball Shiny", cardDetails["is_pokeball_shiny"].toString("-"));
-        createLabelWithCopy("Pokedex Code", cardDetails["pokedexCode"].toString("-"));
-        createLabelWithCopy("Pokedex Text", cardDetails["pokedexText"].toString("-"));
-        createLabelWithCopy("Pokemon Category", cardDetails["pokemonCategory"].toString("-"));
-        createLabelWithCopy("Rarity", cardDetails["rarity"].toString("-"));
-        createLabelWithCopy("Rarity Text", cardDetails["rarityText"].toString("-"));
-        createLabelWithCopy("Regulation Mark", cardDetails["regulationMark"].toString("-"));
-        createLabelWithCopy("Regulation Mark Text", cardDetails["regulationMarkText"].toString("-"));
-        createLabelWithCopy("Retreat Cost", cardDetails["retreatCost"].toString("-"));
-        createLabelWithCopy("Weakness Formula", cardDetails["weaknessFormula"].toString("-"));
-        createLabelWithCopy("Weakness Type", cardDetails["weaknessType"].toString("-"));
-        createLabelWithCopy("Weight", cardDetails["weight"].toString("-"));
-    }
+        QString text = QStringList{
+            "名称：" + details["name"].toString(),
+            "卡牌类型：" + details["cardType"].toString(),
+            "卡牌编号：" + details["setCode"].toString() + " " + details["cardIndex"].toString(),
+            "Yoren Code：" + details["yorenCode"].toString(),
+            "稀有度：" + details["rarity"].toString(),
+            "规则标记：" + details["regulationMark"].toString(),
+            "发行日期：" + details["releaseDate"].toString(),
+            "画师：" + details["artist"].toString(),
+            "",
+            details["description"].toString()
+        }.join("\n");
 
-    // 设置对话框布局并显示
-    detailDialog->setLayout(layout);
-    detailDialog->exec();
+        const QJsonObject pokemon = details["pokemonAttr"].toObject();
+        if (!pokemon.isEmpty()) {
+            text += "\n\n宝可梦属性：\n"
+                + QString::fromUtf8(QJsonDocument(pokemon).toJson(QJsonDocument::Indented));
+        }
+
+        QDialog detailDialog(this);
+        detailDialog.setWindowTitle("卡片详情");
+        detailDialog.resize(600, 500);
+        auto *detailText = new QTextEdit(&detailDialog);
+        detailText->setReadOnly(true);
+        detailText->setText(text);
+        auto *layout = new QVBoxLayout(&detailDialog);
+        layout->addWidget(detailText);
+        detailDialog.exec();
+        setDataStatus("已从 tcg.mik.moe 获取卡片详情。", true);
+    });
 }

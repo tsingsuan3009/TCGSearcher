@@ -1,4 +1,5 @@
 /build/
+/data/
 *.pro.user
 *.pro.user.*
 .qtc_clangd/
