@@ -1,5 +1,3 @@
-QT       += core gui
-QT       += network
 QT       += core gui widgets network
 
 greaterThan(QT_MAJOR_VERSION, 4): QT += widgets
@@ -34,5 +32,4 @@ else: unix:!android: target.path = /opt/$${TARGET}/bin
 
 DISTFILES +=
 
-RESOURCES += \
-    build/Desktop_Qt_6_8_1_MinGW_64_bit-Debug/resources.qrc
+RESOURCES += resources.qrc

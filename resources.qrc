@@ -1,0 +1,15 @@
+<RCC>
+    <qresource prefix="/">
+        <file alias="ygo_logo.png">resources/ygo_logo.png</file>
+        <file alias="ptcg_logo.jpg">resources/ptcg_logo.jpg</file>
+        <file alias="genshin_logo.png">resources/genshin_logo.png</file>
+        <file alias="genshin_background.jpeg">resources/genshin_background.jpeg</file>
+        <file alias="ygo_background.jpg">resources/ygo_background.jpg</file>
+        <file alias="ptcg_background.jpg">resources/ptcg_background.jpg</file>
+    </qresource>
+    <qresource prefix="/rules">
+        <file alias="ygo_rule.txt">resources/ygo_rule.txt</file>
+        <file alias="ptcg_rule.txt">resources/ptcg_rule.txt</file>
+        <file alias="genshin_rule.txt">resources/genshin_rule.txt</file>
+    </qresource>
+</RCC>

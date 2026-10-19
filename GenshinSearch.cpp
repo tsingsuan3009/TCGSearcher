@@ -109,59 +109,39 @@ void GenshinSearch::adjustTitle(int windowWidth) {
 }
 
 void GenshinSearch::loadCards() {
-    QDir currentDir(QDir::currentPath());
-    QString filePath = currentDir.filePath("cards_genshin.json");
-    if (!QFile::exists(filePath)) {
-        QMessageBox::critical(this, "错误", "找不到七圣召唤卡片数据文件：" + filePath);
-        return;
-    }
-
-    loadJsonFile(filePath);
+    loadJsonFromUrl(QUrl("https://raw.githubusercontent.com/tsingsuan3009/TCGSearcher/main/data/cards_genshin.json"));
 }
 
-void GenshinSearch::loadJsonFile(const QString &filePath) {
-    QFile file(filePath);
-    if (!file.exists()) {
-        QMessageBox::critical(this, "错误", "找不到JSON文件：" + filePath);
-        return;
+bool GenshinSearch::loadJsonData(const QByteArray &data) {
+    QJsonParseError parseError;
+    const QJsonDocument doc = QJsonDocument::fromJson(data, &parseError);
+    if (parseError.error != QJsonParseError::NoError || !doc.isObject()) {
+        return false;
     }
 
-    if (!file.open(QIODevice::ReadOnly)) {
-        QMessageBox::critical(this, "错误", "无法打开JSON文件：" + filePath);
-        return;
+    const QJsonObject root = doc.object();
+    const QJsonObject cardData = root["data"].toObject();
+    const QJsonArray roleCards = cardData["role_card_infos"].toArray();
+    const QJsonArray actionCards = cardData["action_card_infos"].toArray();
+    if (roleCards.isEmpty() && actionCards.isEmpty()) {
+        return false;
     }
 
-    QByteArray fileData = file.read(1024 * 1024); // 分批读取 1MB 数据
-    while (!file.atEnd()) {
-        fileData.append(file.read(1024 * 1024));
+    for (const QJsonValue &item : roleCards) {
+        QJsonObject card = item.toObject();
+        card.insert("card_type", "角色");
+        cards.append(card);
     }
-    file.close();
 
-    QJsonDocument doc = QJsonDocument::fromJson(fileData);
-    if (doc.isObject()) {
-        QJsonObject root = doc.object();
-
-        // 加载角色卡
-        QJsonArray roleCards = root["data"].toObject()["role_card_infos"].toArray();
-        for (const auto &item : roleCards) {
-            QJsonObject card = item.toObject();
-            card.insert("card_type", "角色"); // 标记卡牌类型
-            cards.append(card);
-        }
-
-        // 加载行动卡
-        QJsonArray actionCards = root["data"].toObject()["action_card_infos"].toArray();
-        for (const auto &item : actionCards) {
-            QJsonObject card = item.toObject();
-            card.insert("card_type", "行动"); // 标记卡牌类型
-            cards.append(card);
-        }
-
-        qDebug() << "加载的卡片数:" << cards.size();
-
-    } else {
-        QMessageBox::critical(this, "错误", "JSON格式不支持。");
+    for (const QJsonValue &item : actionCards) {
+        QJsonObject card = item.toObject();
+        card.insert("card_type", "行动");
+        cards.append(card);
     }
+
+    adjustWindowSize();
+    qDebug() << "加载的卡片数:" << cards.size();
+    return true;
 }
 
 void GenshinSearch::performSearch() {

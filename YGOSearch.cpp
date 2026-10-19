@@ -117,15 +117,7 @@ void YGOSearch::adjustTitle(int windowWidth) {
 }
 
 void YGOSearch::loadCards() {
-    QDir currentDir(QDir::currentPath());
-    QString filePath = currentDir.filePath("cards_ygo.json"); // 确保路径正确
-
-    if (!QFile::exists(filePath)) {
-        QMessageBox::critical(this, "错误", "游戏王卡片数据文件不存在：" + filePath);
-        return;
-    }
-
-    loadJsonFile(filePath);
+    loadJsonFromUrl(QUrl("https://raw.githubusercontent.com/tsingsuan3009/TCGSearcher/main/data/cards_ygo.json"));
 }
 
 void YGOSearch::performSearch() {
@@ -216,33 +208,29 @@ void YGOSearch::showCardDetails(QTableWidgetItem *item) {
     detailDialog->exec(); // 显示对话框
 }
 
-void YGOSearch::loadJsonFile(const QString &filePath) {
-    QFile file(filePath); // 打开JSON文件
-    if (!file.exists()) {
-        QMessageBox::critical(this, "错误", "找不到JSON文件：" + filePath); // 如果文件不存在，显示错误
-        return;
+bool YGOSearch::loadJsonData(const QByteArray &data) {
+    QJsonParseError parseError;
+    const QJsonDocument doc = QJsonDocument::fromJson(data, &parseError);
+    if (parseError.error != QJsonParseError::NoError || !doc.isObject()) {
+        return false;
     }
 
-    if (!file.open(QIODevice::ReadOnly)) {
-        QMessageBox::critical(this, "错误", "无法打开JSON文件：" + filePath); // 如果文件无法打开，显示错误
-        return;
+    const QJsonObject root = doc.object();
+    if (root.isEmpty()) {
+        return false;
     }
 
-    QByteArray fileData = file.read(1024 * 1024); // 分批读取 1MB 数据
-    while (!file.atEnd()) {
-        fileData.append(file.read(1024 * 1024));
-    }
-    file.close();
-
-    QJsonDocument doc = QJsonDocument::fromJson(fileData); // 解析JSON数据
-    if (doc.isObject()) {
-        QJsonObject root = doc.object(); // 获取JSON根对象
-        for (const QString &key : root.keys()) {
-            QJsonObject card = root[key].toObject(); // 遍历每张卡片
-            cards.append(card); // 添加到卡片列表
+    for (const QString &key : root.keys()) {
+        const QJsonObject card = root[key].toObject();
+        if (!card.isEmpty()) {
+            cards.append(card);
         }
-        qDebug() << "加载的卡片数:" << cards.size();
-    } else {
-        QMessageBox::critical(this, "错误", "JSON格式不支持。"); // 如果JSON格式不支持，显示错误
     }
+    if (cards.isEmpty()) {
+        return false;
+    }
+
+    adjustWindowSize();
+    qDebug() << "加载的卡片数:" << cards.size();
+    return true;
 }

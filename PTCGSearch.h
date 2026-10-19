@@ -26,7 +26,7 @@ private:
     void adjustWindowSize(); // 动态调整窗口大小，支持序号列和额外空间
     void adjustTitle(int windowWidth); // 动态调整标题显示
 
-    void loadJsonFile(const QString &filePath); // 从JSON文件加载卡片数据
+    bool loadJsonData(const QByteArray &data) override;
 };
 
 #endif // PTCGSEARCH_H

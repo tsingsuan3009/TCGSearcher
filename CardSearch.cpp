@@ -10,6 +10,9 @@
 #include <QJsonArray>
 #include <QJsonObject>
 #include <QInputDialog>
+#include <QNetworkReply>
+#include <QNetworkRequest>
+#include <QJsonParseError>
 
 CardSearch::CardSearch(QWidget *parent) : QMainWindow(parent) {
     setWindowTitle("Card Search"); // 设置窗口标题
@@ -24,35 +27,56 @@ CardSearch::CardSearch(QWidget *parent) : QMainWindow(parent) {
     searchButton = new QPushButton("搜索", this); // 创建搜索按钮
     layout->addWidget(searchButton); // 将搜索按钮添加到布局中
 
+    dataStatusLabel = new QLabel(this);
+    dataStatusLabel->hide();
+    layout->addWidget(dataStatusLabel);
+
     resultTable = new QTableWidget(this); // 创建表格
     layout->addWidget(resultTable); // 将表格添加到布局中
 
     connect(searchButton, &QPushButton::clicked, this, &CardSearch::performSearch);
 
+    networkManager = new QNetworkAccessManager(this);
     setCentralWidget(centralWidget);
 }
 
-void CardSearch::loadJsonFile(const QString &filePath) {
-    try {
-        QFile file(filePath);
-        if (!file.exists()) throw std::runtime_error("JSON 文件不存在！");
-        if (!file.open(QIODevice::ReadOnly)) throw std::runtime_error("无法打开 JSON 文件！");
-
-        QByteArray fileData = file.readAll();
-        file.close();
-
-        QJsonDocument doc = QJsonDocument::fromJson(fileData);
-        if (!doc.isObject()) throw std::runtime_error("JSON 格式错误！");
-
-        QJsonObject root = doc.object();
-        QJsonArray cardsArray = root["cards"].toArray();
-        for (const QJsonValue &cardValue : cardsArray) {
-            cards.append(cardValue.toObject());
-        }
-    } catch (const std::exception &e) {
-        logError(e.what());
-        QMessageBox::critical(this, "错误", e.what());
+void CardSearch::loadJsonFromUrl(const QUrl &url) {
+    if (!url.isValid() || url.scheme() != QStringLiteral("https")) {
+        logError("卡片数据地址无效，必须使用 HTTPS。");
+        return;
     }
+
+    dataStatusLabel->setText("正在联网加载卡片数据...");
+    dataStatusLabel->show();
+    searchBox->setEnabled(false);
+    searchButton->setEnabled(false);
+
+    QNetworkRequest request(url);
+    request.setTransferTimeout(60000);
+    QNetworkReply *reply = networkManager->get(request);
+    connect(reply, &QNetworkReply::finished, this, [this, reply, url]() {
+        const QNetworkReply::NetworkError networkError = reply->error();
+        const QString errorMessage = reply->errorString();
+        const QByteArray response = reply->readAll();
+        reply->deleteLater();
+
+        if (networkError != QNetworkReply::NoError) {
+            dataStatusLabel->setText("数据加载失败。请检查网络后重新打开此窗口重试。");
+            logError(QString("无法从 %1 加载卡片数据：%2").arg(url.toString(), errorMessage));
+            return;
+        }
+
+        cards.clear();
+        if (!loadJsonData(response) || cards.isEmpty()) {
+            dataStatusLabel->setText("卡片数据格式无效，请稍后重试。");
+            logError(QString("无法解析从 %1 获取的卡片数据。").arg(url.toString()));
+            return;
+        }
+
+        dataStatusLabel->hide();
+        searchBox->setEnabled(true);
+        searchButton->setEnabled(true);
+    });
 }
 
 void CardSearch::performSearch() {

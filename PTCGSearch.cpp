@@ -90,49 +90,30 @@ void PTCGSearch::adjustTitle(int windowWidth) {
 }
 
 void PTCGSearch::loadCards() {
-    QDir currentDir(QDir::currentPath());
-    QString filePath = currentDir.filePath("cards_ptcg.json");
-    if (!QFile::exists(filePath)) {
-        QMessageBox::critical(this, "错误", "找不到宝可梦TCG卡片数据文件：" + filePath);
-        return;
-    }
-
-    loadJsonFile(filePath);
+    loadJsonFromUrl(QUrl("https://raw.githubusercontent.com/tsingsuan3009/TCGSearcher/main/data/cards_ptcg.json"));
 }
 
-void PTCGSearch::loadJsonFile(const QString &filePath) {
-    QFile file(filePath);
-    if (!file.exists()) {
-        QMessageBox::critical(this, "错误", "找不到JSON文件：" + filePath);
-        return;
+bool PTCGSearch::loadJsonData(const QByteArray &data) {
+    QJsonParseError parseError;
+    const QJsonDocument doc = QJsonDocument::fromJson(data, &parseError);
+    if (parseError.error != QJsonParseError::NoError || !doc.isObject()) {
+        return false;
     }
 
-    if (!file.open(QIODevice::ReadOnly)) {
-        QMessageBox::critical(this, "错误", "无法打开JSON文件：" + filePath);
-        return;
-    }
-
-    QByteArray fileData = file.read(1024 * 1024); // 分批读取 1MB 数据
-    while (!file.atEnd()) {
-        fileData.append(file.read(1024 * 1024));
-    }
-    file.close();
-
-    QJsonDocument doc = QJsonDocument::fromJson(fileData);
-    if (doc.isObject()) {
-        QJsonObject root = doc.object();
-        QJsonArray collectionsArray = root["collections"].toArray();
-        for (const QJsonValue &collectionValue : collectionsArray) {
-            QJsonObject collectionObject = collectionValue.toObject();
-            QJsonArray cardsArray = collectionObject["cards"].toArray();
-            for (const QJsonValue &cardValue : cardsArray) {
-                cards.append(cardValue.toObject());
-            }
+    const QJsonArray collectionsArray = doc.object()["collections"].toArray();
+    for (const QJsonValue &collectionValue : collectionsArray) {
+        const QJsonArray cardsArray = collectionValue.toObject()["cards"].toArray();
+        for (const QJsonValue &cardValue : cardsArray) {
+            cards.append(cardValue.toObject());
         }
-        qDebug() << "加载的卡片数:" << cards.size();
-    } else {
-        QMessageBox::critical(this, "错误", "JSON格式错误！");
     }
+    if (cards.isEmpty()) {
+        return false;
+    }
+
+    adjustWindowSize();
+    qDebug() << "加载的卡片数:" << cards.size();
+    return true;
 }
 
 void PTCGSearch::performSearch() {
