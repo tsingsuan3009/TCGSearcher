@@ -56,13 +56,17 @@ void CardSearch::loadJsonFromUrl(const QUrl &url) {
     QNetworkReply *reply = networkManager->get(request);
     connect(reply, &QNetworkReply::finished, this, [this, reply, url]() {
         const QNetworkReply::NetworkError networkError = reply->error();
+        const int httpStatus = reply->attribute(QNetworkRequest::HttpStatusCodeAttribute).toInt();
         const QString errorMessage = reply->errorString();
         const QByteArray response = reply->readAll();
         reply->deleteLater();
 
-        if (networkError != QNetworkReply::NoError) {
+        if (networkError != QNetworkReply::NoError || httpStatus < 200 || httpStatus >= 300) {
             dataStatusLabel->setText("数据加载失败。请检查网络后重新打开此窗口重试。");
-            logError(QString("无法从 %1 加载卡片数据：%2").arg(url.toString(), errorMessage));
+            const QString reason = networkError != QNetworkReply::NoError
+                                       ? errorMessage
+                                       : QString("HTTP %1").arg(httpStatus);
+            logError(QString("无法从 %1 加载卡片数据：%2").arg(url.toString(), reason));
             return;
         }
 
