@@ -8,7 +8,6 @@
 #include <QWidget>
 #include <QLabel>
 #include <QTextEdit>
-#include <QTimer>
 #include <QUrlQuery>
 #include <QJsonDocument>
 #include <QDialog>
@@ -24,6 +23,7 @@ YGOSearch::YGOSearch(QWidget *parent) : CardSearch(parent) {
     resultTable->setHorizontalHeaderLabels({
         "卡片ID", "名称", "日文名称", "英文名称", "类型", "攻击力", "守备力", "描述"
     });
+    setTableBackground(":/ygo_background.jpg");
     if (!resultTable) {
         resultTable = new QTableWidget(this);
         resultTable->setColumnCount(8);
@@ -39,38 +39,11 @@ YGOSearch::YGOSearch(QWidget *parent) : CardSearch(parent) {
     // 动态调整窗口大小
     adjustWindowSize();
 
-    // 使用定时器延迟设置背景图片
-    QTimer::singleShot(100, this, &YGOSearch::setupTableBackground);
-
     // 将搜索框的回车键与搜索功能连接
     connect(searchBox, &QLineEdit::returnPressed, this, &YGOSearch::performSearch);
 
     // 设置双击表格后显示详细信息
     connect(resultTable, &QTableWidget::itemDoubleClicked, this, &YGOSearch::showCardDetails);
-}
-
-void YGOSearch::setupTableBackground() {
-    QString backgroundPath = ":/ygo_background.jpg"; // 修改为资源路径或实际路径
-
-    QPixmap backgroundPixmap(backgroundPath);
-    if (backgroundPixmap.isNull()) {
-        qDebug() << "Failed to load background image:" << backgroundPath;
-        return;
-    }
-
-    // 设置背景图片并拉伸以适配表格大小
-    QPalette palette;
-    palette.setBrush(QPalette::Base, QBrush(backgroundPixmap.scaled(
-                                         resultTable->size(), Qt::IgnoreAspectRatio, Qt::SmoothTransformation))); // 拉伸背景图
-    resultTable->setPalette(palette);
-    resultTable->setAutoFillBackground(true); // 启用背景填充
-
-    resultTable->viewport()->update(); // 强制刷新视图
-}
-
-void YGOSearch::resizeEvent(QResizeEvent *event) {
-    QWidget::resizeEvent(event); // 调用父类的 resizeEvent
-    resultTable->viewport()->update(); // 强制刷新表格
 }
 
 void YGOSearch::adjustWindowSize() {

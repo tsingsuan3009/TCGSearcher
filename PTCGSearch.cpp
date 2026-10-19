@@ -21,6 +21,7 @@ PTCGSearch::PTCGSearch(QWidget *parent) : CardSearch(parent) {
     // 设置表头
     resultTable->setColumnCount(3);
     resultTable->setHorizontalHeaderLabels({"卡片ID", "名称", "Yoren Code"});
+    setTableBackground(":/ptcg_background.jpg");
 
     // 禁止用户修改表格内容
     resultTable->setEditTriggers(QAbstractItemView::NoEditTriggers);

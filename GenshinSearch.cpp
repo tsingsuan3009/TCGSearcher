@@ -9,7 +9,6 @@
 #include <QHeaderView>
 #include <QFontMetrics>
 #include <QTextEdit>
-#include <QTimer>
 #include <QDialog>
 #include <QJsonParseError>
 #include <algorithm>
@@ -22,6 +21,7 @@ GenshinSearch::GenshinSearch(QWidget *parent) : CardSearch(parent) {
     // 设置表头
     resultTable->setColumnCount(3); // 确保表格有3列
     resultTable->setHorizontalHeaderLabels({"ID", "名称", "类型"});
+    setTableBackground(":/genshin_background.jpeg");
 
     // 禁止用户修改表格内容
     resultTable->setEditTriggers(QAbstractItemView::NoEditTriggers);
@@ -29,38 +29,11 @@ GenshinSearch::GenshinSearch(QWidget *parent) : CardSearch(parent) {
     // 动态调整窗口大小
     adjustWindowSize();
 
-    // 使用定时器延迟设置背景图片
-    QTimer::singleShot(100, this, &GenshinSearch::setupTableBackground);
-
     // 将搜索框的回车键与搜索功能连接
     connect(searchBox, &QLineEdit::returnPressed, this, &GenshinSearch::performSearch);
 
     // 设置双击表格后显示详细信息
     connect(resultTable, &QTableWidget::itemDoubleClicked, this, &GenshinSearch::showCardDetails);
-}
-
-void GenshinSearch::setupTableBackground() {
-    QString backgroundPath = ":/genshin_background.jpeg"; // 修改为资源路径或实际路径
-
-    QPixmap backgroundPixmap(backgroundPath);
-    if (backgroundPixmap.isNull()) {
-        qDebug() << "Failed to load background image:" << backgroundPath;
-        return;
-    }
-
-    // 设置背景图片并拉伸以适配表格大小
-    QPalette palette;
-    palette.setBrush(QPalette::Base, QBrush(backgroundPixmap.scaled(
-                                         resultTable->size(), Qt::IgnoreAspectRatio, Qt::SmoothTransformation))); // 拉伸背景图
-    resultTable->setPalette(palette);
-    resultTable->setAutoFillBackground(true); // 启用背景填充
-
-    resultTable->viewport()->update(); // 强制刷新视图
-}
-
-void GenshinSearch::resizeEvent(QResizeEvent *event) {
-    QWidget::resizeEvent(event); // 调用父类的 resizeEvent
-    resultTable->viewport()->update(); // 强制刷新表格
 }
 
 void GenshinSearch::adjustWindowSize() {

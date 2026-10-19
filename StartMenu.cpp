@@ -12,10 +12,78 @@
 #include <QFile>
 #include <QTextStream>
 #include <QTextEdit>
+#include <QHBoxLayout>
+#include <QToolButton>
+#include <QSizePolicy>
+#include <QPainter>
+#include <QPainterPath>
+#include <QPaintEvent>
+#include <QCursor>
+#include <QPixmap>
+#include <QColor>
+
+class ImageCardButton : public QToolButton {
+public:
+    explicit ImageCardButton(const QString &imagePath, QWidget *parent = nullptr)
+        : QToolButton(parent), background(imagePath) {
+        if (background.isNull()) {
+            qWarning() << "无法加载图鉴卡片背景图片:" << imagePath;
+        }
+        setAutoRaise(true);
+        setCursor(Qt::PointingHandCursor);
+        setToolButtonStyle(Qt::ToolButtonTextUnderIcon);
+    }
+
+protected:
+    void paintEvent(QPaintEvent *event) override {
+        {
+            QPainter painter(this);
+            painter.setRenderHint(QPainter::Antialiasing);
+
+            QPainterPath clipPath;
+            clipPath.addRoundedRect(rect(), 16, 16);
+            painter.setClipPath(clipPath);
+
+            const QPixmap scaled = background.scaled(
+                size(), Qt::KeepAspectRatioByExpanding, Qt::SmoothTransformation);
+            const QRect source((scaled.width() - width()) / 2,
+                               (scaled.height() - height()) / 2,
+                               width(),
+                               height());
+            painter.drawPixmap(rect(), scaled, source);
+            painter.fillRect(rect(), QColor(5, 12, 24, 115));
+        }
+
+        QToolButton::paintEvent(event);
+    }
+
+private:
+    QPixmap background;
+};
 
 StartMenu::StartMenu(QWidget *parent) : QMainWindow(parent) {
     setWindowTitle("集换式卡牌（TCG）搜索工具");
-    resize(350, 400);
+    resize(1040, 700);
+    setMinimumSize(820, 600);
+    setStyleSheet(R"(
+        QMainWindow { background-color: #0b1120; }
+        QMenuBar {
+            color: #cbd5e1; background-color: #111827; border-bottom: 1px solid #263449;
+            padding: 5px;
+        }
+        QMenuBar::item { padding: 7px 12px; background: transparent; border-radius: 5px; }
+        QMenuBar::item:selected { color: #f8fafc; background-color: #1e293b; }
+        QMenu { color: #e2e8f0; background-color: #111827; border: 1px solid #334155; }
+        QMenu::item { padding: 7px 24px; }
+        QMenu::item:selected { background-color: #2563eb; }
+        QToolButton {
+            color: #f8fafc; background: transparent;
+            border: 1px solid rgba(255, 255, 255, 90); border-radius: 16px;
+            padding: 22px 12px; font-size: 15px; font-weight: 700;
+            text-align: center;
+        }
+        QToolButton:hover { border: 2px solid #60a5fa; }
+    )");
 
     // 添加工具栏
     QMenuBar *menuBar = new QMenuBar(this);
@@ -33,9 +101,8 @@ StartMenu::StartMenu(QWidget *parent) : QMainWindow(parent) {
     connect(ptcgHelp, &QAction::triggered, this, &StartMenu::showPTCGHelp);
     connect(genshinHelp, &QAction::triggered, this, &StartMenu::showGenshinHelp);
 
-    addToolMenu();
-
     setMenuBar(menuBar);
+    addToolMenu();
 
     // 关于菜单
     QMenu *aboutMenu = menuBar->addMenu("关于");
@@ -47,42 +114,74 @@ StartMenu::StartMenu(QWidget *parent) : QMainWindow(parent) {
     connect(aboutAction, &QAction::triggered, this, &StartMenu::showAboutDialog);
     connect(aboutAuthorAction, &QAction::triggered, this, &StartMenu::showAuthorInfo);
 
-    // 中心窗口布局
     QWidget *centralWidget = new QWidget(this);
+    centralWidget->setObjectName("landingPage");
+    centralWidget->setStyleSheet("#landingPage { background-color: #0b1120; }");
     QVBoxLayout *layout = new QVBoxLayout(centralWidget);
+    layout->setContentsMargins(36, 32, 36, 28);
+    layout->setSpacing(18);
 
-    QLabel *titleLabel = new QLabel("集换式卡牌搜索工具", this);
-    QFont titleFont("Arial", 18, QFont::Bold);
-    titleLabel->setFont(titleFont);
-    titleLabel->setAlignment(Qt::AlignCenter);
+    QLabel *eyebrowLabel = new QLabel("TCG SEARCHER  /  CARD LIBRARY", centralWidget);
+    eyebrowLabel->setStyleSheet("color: #60a5fa; font-size: 10pt; font-weight: 700; letter-spacing: 2px;");
+    layout->addWidget(eyebrowLabel);
+
+    QLabel *titleLabel = new QLabel("集换式卡牌检索", centralWidget);
+    titleLabel->setStyleSheet("color: #f8fafc; font-size: 28pt; font-weight: 700;");
     layout->addWidget(titleLabel);
 
-    QFrame *line = new QFrame(this);
+    QLabel *subtitleLabel = new QLabel(
+        "选择一个图鉴，搜索最新卡牌资料。在线数据持续更新，卡片详情双击查看。",
+        centralWidget);
+    subtitleLabel->setStyleSheet("color: #94a3b8; font-size: 11pt;");
+    layout->addWidget(subtitleLabel);
+
+    QFrame *line = new QFrame(centralWidget);
     line->setFrameShape(QFrame::HLine);
-    line->setFrameShadow(QFrame::Sunken);
+    line->setStyleSheet("color: #263449; background-color: #263449; max-height: 1px;");
     layout->addWidget(line);
 
-    QPushButton *ygoButton = new QPushButton(this);
+    QHBoxLayout *cardsLayout = new QHBoxLayout;
+    cardsLayout->setSpacing(18);
+
+    ImageCardButton *ygoButton = new ImageCardButton(":/ygo_background.jpg", centralWidget);
+    ygoButton->setObjectName("ygoCard");
+    ygoButton->setText("游戏王\n实时卡查 · 卡片详情");
     QPixmap ygoPixmap(":/ygo_logo.png");
     ygoButton->setIcon(QIcon(ygoPixmap));
-    ygoButton->setIconSize(QSize(200, 100));
-    layout->addWidget(ygoButton);
+    ygoButton->setIconSize(QSize(150, 76));
+    ygoButton->setMinimumHeight(270);
+    ygoButton->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Expanding);
+    cardsLayout->addWidget(ygoButton);
 
-    QPushButton *ptcgButton = new QPushButton(this);
+    ImageCardButton *ptcgButton = new ImageCardButton(":/ptcg_background.jpg", centralWidget);
+    ptcgButton->setObjectName("ptcgCard");
+    ptcgButton->setText("宝可梦 TCG\n实时图鉴 · 按系列检索");
     QPixmap ptcgPixmap(":/ptcg_logo.jpg");
     ptcgButton->setIcon(QIcon(ptcgPixmap));
-    ptcgButton->setIconSize(QSize(200, 100));
-    layout->addWidget(ptcgButton);
+    ptcgButton->setIconSize(QSize(150, 76));
+    ptcgButton->setMinimumHeight(270);
+    ptcgButton->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Expanding);
+    cardsLayout->addWidget(ptcgButton);
 
-    QPushButton *genshinButton = new QPushButton(this);
+    ImageCardButton *genshinButton = new ImageCardButton(":/genshin_background.jpeg", centralWidget);
+    genshinButton->setObjectName("genshinCard");
+    genshinButton->setText("原神 · 七圣召唤\n角色卡与行动卡");
     QPixmap genshinPixmap(":/genshin_logo.png");
     genshinButton->setIcon(QIcon(genshinPixmap));
-    genshinButton->setIconSize(QSize(200, 100));
-    layout->addWidget(genshinButton);
+    genshinButton->setIconSize(QSize(150, 76));
+    genshinButton->setMinimumHeight(270);
+    genshinButton->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Expanding);
+    cardsLayout->addWidget(genshinButton);
+    layout->addLayout(cardsLayout, 1);
 
-    connect(ygoButton, &QPushButton::clicked, this, &StartMenu::openYGOSearch);
-    connect(ptcgButton, &QPushButton::clicked, this, &StartMenu::openPTCGSearch);
-    connect(genshinButton, &QPushButton::clicked, this, &StartMenu::openGenshinSearch);
+    QLabel *footerLabel = new QLabel("三大卡牌图鉴  ·  HTTPS 在线数据  ·  双击搜索结果查看详情", centralWidget);
+    footerLabel->setAlignment(Qt::AlignCenter);
+    footerLabel->setStyleSheet("color: #64748b; font-size: 9pt;");
+    layout->addWidget(footerLabel);
+
+    connect(ygoButton, &QToolButton::clicked, this, &StartMenu::openYGOSearch);
+    connect(ptcgButton, &QToolButton::clicked, this, &StartMenu::openPTCGSearch);
+    connect(genshinButton, &QToolButton::clicked, this, &StartMenu::openGenshinSearch);
 
     setCentralWidget(centralWidget);
 }

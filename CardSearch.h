@@ -4,6 +4,7 @@
 #include <QMainWindow>
 #include <QLineEdit>
 #include <QTableWidget>
+#include <QPixmap>
 #include <QPushButton>
 #include <QVBoxLayout>
 #include <QComboBox>
@@ -18,6 +19,8 @@
 #include <QLabel>
 #include <functional>
 
+class QResizeEvent;
+
 // 定义 CardSearch 类，用于处理卡片搜索功能
 class CardSearch : public QMainWindow {
     Q_OBJECT
@@ -30,6 +33,7 @@ protected:
     virtual void performSearch(); // 搜索功能
     virtual void loadCards() = 0; // 纯虚函数，用于加载卡片数据
     virtual void showCardDetails(QTableWidgetItem *item);
+    void resizeEvent(QResizeEvent *event) override;
 
     QLineEdit *searchBox; // 搜索框
     QTableWidget *resultTable; // 显示搜索结果的表格
@@ -43,10 +47,14 @@ protected:
     void setDataStatus(const QString &message, bool searchEnabled);
     void showDataError(const QString &message);
     void logError(const QString &message); // 错误日志记录
+    void setTableBackground(const QString &resourcePath);
 
 private:
+    void updateTableBackground();
+
     QLabel *dataStatusLabel;
     QNetworkAccessManager *networkManager;
+    QPixmap tableBackground;
 };
 
 #endif // CARDSEARCH_H
